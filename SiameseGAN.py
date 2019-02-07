@@ -1,13 +1,19 @@
-import utils, torch, time, os, pickle
+import os
+import pickle
+import time
+
 import numpy as np
-import torch.nn as nn 
-import torch.nn.functional as F 
-import torch.optim as optim 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 import torch.utils.data
-from torchvision import datasets, transforms
-from model import generator, discriminator
-from losses import ContrastiveLoss
 import torchvision.utils as vutils
+from torchvision import datasets, transforms
+
+import utils
+from losses import ContrastiveLoss
+from model import discriminator, generator
 
 
 class SiameseGAN(object):
@@ -27,7 +33,9 @@ class SiameseGAN(object):
         self.z_dim = 100
         self.c = 0.01                   # clipping value
         self.n_critic = 1               # the number of iterations of the critic per generator iteration
-        
+        self.margin = 2.0
+        self.margin_decay = 0.5
+
         self.transform = transforms.Compose([transforms.Resize((self.input_size, self.input_size)),
                                              transforms.ToTensor(),
                                              transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))])
@@ -90,9 +98,9 @@ class SiameseGAN(object):
                 self.D_optimizer.zero_grad()
                 gen_img = self.G(noise.detach())
                 output1, output2 = self.D(img[:half_batch,:,:,:], gen_img)
-                d_loss_fake = self.CLloss(output1, output2,label_fake)
+                d_loss_fake = self.CLloss(output1, output2, self.margin, label_fake)
                 output1, output2 = self.D(img[:half_batch,:,:,:], img[half_batch:,:,:,:])
-                d_loss_real = self.CLloss(output1, output2, label_real)
+                d_loss_real = self.CLloss(output1, output2, self.margin, label_real)
                 d_loss = d_loss_fake + d_loss_real
                 d_loss.backward()
                 self.D_optimizer.step()
@@ -114,7 +122,7 @@ class SiameseGAN(object):
                     #print(gen_img.size())
                     #print(img.size())
                     output1, output2 = self.D(img, gen_img)
-                    g_loss = self.CLloss(output1, output2, g_label_real)
+                    g_loss = self.CLloss(output1, output2, self.margin, g_label_real)
 
                     self.train_hist['G_loss'].append(g_loss.item())
                     g_loss.backward()
@@ -124,8 +132,8 @@ class SiameseGAN(object):
                      print("Epoch: {} {} de {} D_loss: {:.8f} G_loss: {:.8f}".format(
                          (epoch + 1), (i + 1), self.data_loader.dataset.__len__() // self.batch_size,
                          d_loss.item(), g_loss.item()))
-                
-            
+
+            self.margin = self.margin * self.margin_decay
             self.train_hist['per_epoch_time'].append(time.time() - epoch_start_time)
             with torch.no_grad():
                 self.visualize_results((epoch+1))
@@ -186,11 +194,3 @@ class SiameseGAN(object):
 
         self.G.load_state_dict(torch.load(os.path.join(save_dir, self.model_name + '_G.pkl')))
         self.D.load_state_dict(torch.load(os.path.join(save_dir, self.model_name + '_D.pkl')))
-
-    
-
-                    
-                    
-                    
-        
-        
